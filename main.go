@@ -43,10 +43,7 @@ func main() {
 			fmt.Print(".")
 		}
 
-		for i, a := range addresses {
-			if i == 0 {
-				log.Println(a, address)
-			}
+		for _, a := range addresses {
 			if strings.HasPrefix(a, "bc1") {
 				if bipAddress == a {
 					foundBTC(privateKey.String(), publicKey.String(), address)
