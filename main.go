@@ -5,7 +5,6 @@ import (
 	"encoding/csv"
 	"encoding/gob"
 	"fmt"
-	"github.com/brianium/mnemonic"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/wemeetagain/go-hdwallet"
@@ -13,17 +12,23 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 )
+
+const storeFile = "addresses.bin"
 
 func main() {
 	addresses := fetch()
+
+	log.Println("Begin processing address loop")
 	c := 0
 	for {
-		m, _ := mnemonic.NewRandom(256, mnemonic.English)
+		m, err2 := hdwallet.GenSeed(256)
+		if err2 != nil {
+			panic(err2)
+		}
 
 		// Create a master private key
-		privateKey := hdwallet.MasterKey([]byte(m.Sentence()))
+		privateKey := hdwallet.MasterKey(m)
 
 		// Convert a private key to public key
 		publicKey := privateKey.Pub()
@@ -31,27 +36,31 @@ func main() {
 		// Get the address
 		address := publicKey.Address()
 
+		// TODO while running in docker we seem to get stuck here
 		witnessProg := btcutil.Hash160(publicKey.Serialize())
-		addressWitnessPubKeyHash, err := btcutil.NewAddressWitnessPubKeyHash(witnessProg, &chaincfg.MainNetParams)
-		if err != nil {
-			panic(err)
+		addressWitnessPubKeyHash, err2 := btcutil.NewAddressWitnessPubKeyHash(witnessProg, &chaincfg.MainNetParams)
+		if err2 != nil {
+			panic(err2)
+		}
+		addressScriptHash, err3 := btcutil.NewAddressScriptHash(witnessProg, &chaincfg.MainNetParams)
+		if err3 != nil {
+			panic(err3)
 		}
 		bipAddress := addressWitnessPubKeyHash.EncodeAddress()
+		scriptAddress := addressScriptHash.EncodeAddress()
 
-		if c > 100 {
+		if c > 10 {
 			c = 0
-			fmt.Print(".")
+			log.Println(".")
 		}
 
 		for _, a := range addresses {
-			if strings.HasPrefix(a, "bc1") {
-				if bipAddress == a {
-					foundBTC(privateKey.String(), publicKey.String(), address)
-				}
-			} else {
-				if address == a {
-					foundBTC(privateKey.String(), publicKey.String(), address)
-				}
+			if bipAddress == a {
+				foundBTC(privateKey.String(), publicKey.String(), a)
+			} else if scriptAddress == a {
+				foundBTC(privateKey.String(), publicKey.String(), a)
+			} else if address == a {
+				foundBTC(privateKey.String(), publicKey.String(), a)
 			}
 		}
 		c++
@@ -78,31 +87,30 @@ func store(s string) {
 	}
 }
 
-func fetch() []string {
-	var addresses []string
+func fetch() (addresses []string) {
 	log.Println("Attempting to load from file")
-	const storeFile = "addresses.bin"
 	rd, err := ioutil.ReadFile(storeFile)
 	if err != nil {
 		log.Println("Downloading new file")
-		records, err := downloadFile("https://bitkeys.work/btc_balance_sorted.csv")
-		if err != nil {
-			log.Fatalln(err)
+		records, err2 := downloadFile("https://bitkeys.work/btc_balance_sorted.csv")
+		if err2 != nil {
+			log.Fatalln(err2)
 		}
 		log.Printf("Found %d records\n", len(records))
-		// TODO should normalize all the different types of addresses here
 		for i, r := range records {
 			// Skip headers
 			if i > 0 {
 				addresses = append(addresses, r[0])
 			}
 		}
-		log.Println("finished processing")
+		records = nil
+		log.Println("Encoding results")
 		buf := &bytes.Buffer{}
 		err = gob.NewEncoder(buf).Encode(addresses)
 		if err != nil {
 			panic(err)
 		}
+		log.Println("Writing file to disk")
 		err = ioutil.WriteFile(storeFile, buf.Bytes(), 0666)
 		if err != nil {
 			panic(err)

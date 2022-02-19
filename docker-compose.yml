@@ -1,0 +1,10 @@
+services:
+  btcheist:
+    build: .
+    container_name: btcheist
+    volumes:
+      - btcvol:/app
+    environment:
+      - SLACK_WEBHOOK=comingsoon
+volumes:
+  btcvol:
